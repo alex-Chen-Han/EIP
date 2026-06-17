@@ -1,0 +1,23 @@
+# Build directories
+**/target/
+**/node_modules/
+**/dist/
+
+# OS/IDE metadata files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Uploads directory
+uploads/
+**/uploads/
+
+# Local logs
+logs/
+**/logs/

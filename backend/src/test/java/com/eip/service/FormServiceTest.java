@@ -425,4 +425,76 @@ public class FormServiceTest {
         assertNotNull(result);
         assertEquals(new BigDecimal("4.0"), result.getTotalHours());
     }
+
+    @Test
+    public void testSubmitForm_InvalidAmountNull() {
+        // 測試財務表單金額為 null 時拋出異常
+        ApprovalForm form = ApprovalForm.builder()
+                .title("預支請款-金額為空")
+                .formType("ADVANCE")
+                .amount(null)
+                .reason("公務採購")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(form, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
+
+    @Test
+    public void testSubmitForm_InvalidAmountNegativeOrZero() {
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        // 測試金額為 0
+        ApprovalForm formZero = ApprovalForm.builder()
+                .title("預支請款-金額為零")
+                .formType("ADVANCE")
+                .amount(BigDecimal.ZERO)
+                .reason("公務採購")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(formZero, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+
+        // 測試金額為負數
+        ApprovalForm formNegative = ApprovalForm.builder()
+                .title("預支請款-金額為負")
+                .formType("ADVANCE")
+                .amount(new BigDecimal("-100.50"))
+                .reason("公務採購")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(formNegative, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
+
+    @Test
+    public void testSubmitForm_InvalidAmountOverflow() {
+        // 測試金額超出限制（例如 10 億元，大於 999,999,999.99）
+        ApprovalForm formOverflow = ApprovalForm.builder()
+                .title("預支請款-金額溢位")
+                .formType("ADVANCE")
+                .amount(new BigDecimal("1000000000.00"))
+                .reason("公務採購")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(formOverflow, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
 }

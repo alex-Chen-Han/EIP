@@ -71,12 +71,12 @@ public class FormServiceTest {
     @Test
     public void testSubmitForm_LeaveHoursCalculation() throws IOException {
         // 測試請假時數計算是否扣除午休 12:00 - 13:00
-        // 情況 A：09:00 至 18:00 (總共 9 小時，扣除午休 12-13 應為 8 小時)
+        // 情況 A：08:00 至 17:00 (總共 9 小時，扣除午休 12-13 應為 8 小時)
         ApprovalForm leaveForm = ApprovalForm.builder()
                 .title("請假單A")
                 .formType("LEAVE")
-                .startTime(LocalDateTime.of(2026, 6, 15, 9, 0))
-                .endTime(LocalDateTime.of(2026, 6, 15, 18, 0))
+                .startTime(LocalDateTime.of(2026, 6, 15, 8, 0))
+                .endTime(LocalDateTime.of(2026, 6, 15, 17, 0))
                 .reason("事假")
                 .build();
 
@@ -227,5 +227,202 @@ public class FormServiceTest {
         assertThrows(IllegalStateException.class, () -> {
             formService.withdrawForm(301L, "EMP001");
         });
+    }
+
+    @Test
+    public void testSubmitForm_InvalidTimeAlignment() {
+        // 測試開始時間未對齊半小時 (如 09:15)
+        ApprovalForm leaveFormInvalidStart = ApprovalForm.builder()
+                .title("請假單-開始未對齊")
+                .formType("LEAVE")
+                .startTime(LocalDateTime.of(2026, 6, 15, 9, 15))
+                .endTime(LocalDateTime.of(2026, 6, 15, 12, 0))
+                .reason("事假")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(leaveFormInvalidStart, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+
+        // 測試結束時間未對齊半小時 (如 12:45)
+        ApprovalForm leaveFormInvalidEnd = ApprovalForm.builder()
+                .title("請假單-結束未對齊")
+                .formType("LEAVE")
+                .startTime(LocalDateTime.of(2026, 6, 15, 9, 0))
+                .endTime(LocalDateTime.of(2026, 6, 15, 12, 45))
+                .reason("事假")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(leaveFormInvalidEnd, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
+
+    @Test
+    public void testSubmitForm_InvalidTimeOrder() {
+        // 測試開始時間等於結束時間
+        ApprovalForm leaveFormEqual = ApprovalForm.builder()
+                .title("請假單-時間相同")
+                .formType("LEAVE")
+                .startTime(LocalDateTime.of(2026, 6, 15, 9, 0))
+                .endTime(LocalDateTime.of(2026, 6, 15, 9, 0))
+                .reason("事假")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(leaveFormEqual, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+
+        // 測試開始時間晚於結束時間
+        ApprovalForm leaveFormAfter = ApprovalForm.builder()
+                .title("請假單-開始晚於結束")
+                .formType("LEAVE")
+                .startTime(LocalDateTime.of(2026, 6, 15, 10, 0))
+                .endTime(LocalDateTime.of(2026, 6, 15, 9, 0))
+                .reason("事假")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(leaveFormAfter, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
+
+    @Test
+    public void testSubmitForm_OvertimeCalculation() throws IOException {
+        // 測試加班時數計算：09:00 到 12:30 (共 3.5 小時，不扣除午休)
+        ApprovalForm overtimeForm = ApprovalForm.builder()
+                .title("加班單A")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 15, 9, 0))
+                .endTime(LocalDateTime.of(2026, 6, 15, 12, 30))
+                .reason("專案加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(overtimeForm, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("3.5"), result.getTotalHours());
+    }
+
+    @Test
+    public void testSubmitForm_LeaveWeekendAndOffHourExclusion() throws IOException {
+        // 測試跨日與跨週末請假時數排除：週五 16:00 到 下週一 09:00
+        // 週五 16:00-17:00 (計 1.0 小時，17:00之後為下班時間不計)
+        // 週六、週日 (週末不計)
+        // 週一 08:00-09:00 (計 1.0 小時)
+        // 預期總時數為 2.0 小時
+        ApprovalForm weekendLeaveForm = ApprovalForm.builder()
+                .title("跨週末請假")
+                .formType("LEAVE")
+                .startTime(LocalDateTime.of(2026, 6, 12, 16, 0)) // 2026-06-12 是週五
+                .endTime(LocalDateTime.of(2026, 6, 15, 9, 0))    // 2026-06-15 是週一
+                .reason("特休")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(weekendLeaveForm, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("2.0"), result.getTotalHours());
+    }
+
+    @Test
+    public void testSubmitForm_OvertimeCrossDayRejection() {
+        // 測試加班跨日拋出異常阻斷 (如週一 20:00 至 週二 01:00)
+        ApprovalForm crossDayOvertimeForm = ApprovalForm.builder()
+                .title("跨日加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 15, 20, 0)) // 週一
+                .endTime(LocalDateTime.of(2026, 6, 16, 1, 0))   // 週二
+                .reason("專案上線加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(crossDayOvertimeForm, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+    }
+
+    @Test
+    public void testSubmitForm_OvertimeWeekendAllowed() throws IOException {
+        // 測試假日加班不被排除：週六 09:00 至 週六 12:00 (共 3.0 小時)
+        ApprovalForm weekendOvertimeForm = ApprovalForm.builder()
+                .title("週六加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 13, 9, 0))  // 2026-06-13 是週六
+                .endTime(LocalDateTime.of(2026, 6, 13, 12, 0))
+                .reason("假日專案加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(weekendOvertimeForm, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("3.0"), result.getTotalHours());
+    }
+
+    @Test
+    public void testSubmitForm_OvertimeBoundaryMidnightAllowed() throws IOException {
+        // 測試加班邊界條件：第一天 20:00 至 隔天 00:00 (剛好跨入 00:00 算做第一天的 4.0 小時，不予阻斷)
+        ApprovalForm midnightOvertimeForm = ApprovalForm.builder()
+                .title("邊界加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 15, 20, 0)) // 週一
+                .endTime(LocalDateTime.of(2026, 6, 16, 0, 0))    // 週二凌晨 00:00
+                .reason("正常加班至午夜")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(midnightOvertimeForm, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("4.0"), result.getTotalHours());
     }
 }

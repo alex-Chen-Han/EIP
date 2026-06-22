@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -86,6 +87,19 @@ public class FormServiceImpl implements FormService {
                 form.setTotalHours(hours);
                 log.info("請假時間段：{} 到 {}，自動計算時數（扣除午休）：{} 小時", start, end, hours);
             } else {
+                // 加班防跨日驗證（排除隔天凌晨 00:00 的臨界情況）
+                LocalDate startDate = start.toLocalDate();
+                LocalDate endDate = end.toLocalDate();
+                java.time.LocalTime endTime = end.toLocalTime();
+
+                boolean isSameDay = startDate.isEqual(endDate);
+                boolean isExactlyMidnightNextDay = endDate.isEqual(startDate.plusDays(1)) && 
+                                                   endTime.equals(java.time.LocalTime.MIDNIGHT);
+
+                if (!isSameDay && !isExactlyMidnightNextDay) {
+                    log.warn("發起簽呈失敗：加班申請不可跨日，起迄時間：{} - {}", start, end);
+                    throw new IllegalArgumentException("加班申請不可跨日，若跨日請拆分為多張單據申請");
+                }
                 BigDecimal hours = calculateOvertimeHours(start, end);
                 form.setTotalHours(hours);
                 log.info("加班時間段：{} 到 {}，自動計算時數：{} 小時", start, end, hours);
@@ -341,8 +355,15 @@ public class FormServiceImpl implements FormService {
         LocalDateTime current = start;
 
         while (current.isBefore(end)) {
-            // 判斷該半小時區段是否為 12:00 - 13:00 (即 current 的 Hour 為 12)
-            if (!(current.getHour() == 12)) {
+            // 1. 排除週末假日 (週六與週日)
+            boolean isWeekend = (current.getDayOfWeek() == java.time.DayOfWeek.SATURDAY || 
+                                 current.getDayOfWeek() == java.time.DayOfWeek.SUNDAY);
+            
+            // 2. 判定是否在工作時間內 (標準上班時間 08:00 - 17:00，且排除中午 12:00 - 13:00)
+            int hour = current.getHour();
+            boolean isWorkingHour = (hour >= 8 && hour < 17 && hour != 12);
+
+            if (!isWeekend && isWorkingHour) {
                 totalHalfHours++;
             }
             current = current.plusMinutes(30);

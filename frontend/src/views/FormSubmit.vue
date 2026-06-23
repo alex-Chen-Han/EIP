@@ -30,10 +30,83 @@ const form = reactive({
 
 const routes = ref([]) // 簽核節點清單
 
+const validateInvoiceNum = (rule, value, callback) => {
+  if (form.formType === 'PAYMENT') {
+    if (!value) {
+      return callback(new Error('請輸入發票號碼'))
+    }
+    const invoiceRegex = /^[A-Z]{2}\d{8}$/
+    if (!invoiceRegex.test(value)) {
+      return callback(new Error('發票號碼格式不正確，應為 2 碼大寫英文與 8 碼數字（例如：AB12345678）'))
+    }
+  }
+  callback()
+}
+
+const validateInvoiceDate = (rule, value, callback) => {
+  if (form.formType === 'PAYMENT') {
+    if (!value) {
+      return callback(new Error('請選擇發票日期'))
+    }
+    const invDate = new Date(value)
+    const tomorrow = new Date()
+    tomorrow.setHours(24, 0, 0, 0)
+    if (invDate >= tomorrow) {
+      return callback(new Error('發票日期不可為未來日期'))
+    }
+  }
+  callback()
+}
+
+const validateStartTime = (rule, value, callback) => {
+  if (form.formType === 'LEAVE' || form.formType === 'OVERTIME') {
+    if (!value) {
+      return callback(new Error('請選擇開始時間'))
+    }
+  }
+  callback()
+}
+
+const validateEndTime = (rule, value, callback) => {
+  if (form.formType === 'LEAVE' || form.formType === 'OVERTIME') {
+    if (!value) {
+      return callback(new Error('請選擇結束時間'))
+    }
+    if (form.startTime && new Date(form.startTime) >= new Date(value)) {
+      return callback(new Error('結束時間必須大於開始時間'))
+    }
+    if (form.formType === 'OVERTIME') {
+      if (new Date(value) > new Date()) {
+        return callback(new Error('加班結束時間不可為未來時間'))
+      }
+    }
+  }
+  callback()
+}
+
 const formRules = {
   title: [{ required: true, message: '請輸入簽呈主旨', trigger: 'blur' }],
   formType: [{ required: true, message: '請選擇表單類型', trigger: 'change' }],
-  amount: [{ required: true, message: '請輸入金額', trigger: 'blur' }],
+  amount: [
+    {
+      validator: (rule, value, callback) => {
+        if (form.formType === 'ADVANCE' || form.formType === 'PAYMENT') {
+          if (value === null || value === undefined || value <= 0) {
+            return callback(new Error('請款金額必須大於 0'))
+          }
+          if (value > 999999999.99) {
+            return callback(new Error('請款金額超出限制'))
+          }
+        }
+        callback()
+      },
+      trigger: ['blur', 'change']
+    }
+  ],
+  invoiceNum: [{ validator: validateInvoiceNum, trigger: ['blur', 'change'] }],
+  invoiceDate: [{ validator: validateInvoiceDate, trigger: ['blur', 'change'] }],
+  startTime: [{ validator: validateStartTime, trigger: ['blur', 'change'] }],
+  endTime: [{ validator: validateEndTime, trigger: ['blur', 'change'] }],
   reason: [{ required: true, message: '請輸入用途說明或事由', trigger: 'blur' }]
 }
 
@@ -66,7 +139,8 @@ const loadData = async () => {
         },
         stepNumber: 1,
         subStep: 1,
-        type: 'APPLICANT' // 申請人自己
+        type: 'APPLICANT',
+        isDefault: true // 申請人自己
       }
     ]
 
@@ -81,7 +155,8 @@ const loadData = async () => {
           },
           stepNumber: 2,
           subStep: 1,
-          type: 'MANAGER' // 直屬主管
+          type: 'MANAGER',
+          isDefault: true // 直屬主管
         })
       }
     } else {
@@ -95,7 +170,8 @@ const loadData = async () => {
           },
           stepNumber: 2,
           subStep: 1,
-          type: 'MANAGER'
+          type: 'MANAGER',
+          isDefault: true
         })
       }
     }
@@ -242,6 +318,26 @@ const rebuildSteps = () => {
   routes.value = newRoutes
 }
 
+const disabledInvoiceDate = (time) => {
+  return time.getTime() > Date.now()
+}
+
+const disabledOvertimeDate = (time) => {
+  return time.getTime() > Date.now()
+}
+
+const reasonLabel = computed(() => {
+  if (form.formType === 'LEAVE') return '請假事由'
+  if (form.formType === 'OVERTIME') return '加班內容'
+  if (form.formType === 'ADVANCE') return '預支用途'
+  if (form.formType === 'PAYMENT') return '墊付內容'
+  return '說明'
+})
+
+const reasonPlaceholder = computed(() => {
+  return `請輸入${reasonLabel.value}`
+})
+
 const handleFileChange = (file, fileListBack) => {
   fileList.value = fileListBack
 }
@@ -264,30 +360,6 @@ const submitForm = async () => {
       if (routes.value.length < 2) {
         ElMessage.warning('簽核流程不完整，必須至少配置直屬主管或其他審核人')
         return
-      }
-
-      // 請假/加班時間檢驗
-      if (form.formType === 'LEAVE' || form.formType === 'OVERTIME') {
-        if (!form.startTime || !form.endTime) {
-          ElMessage.warning('請填寫起迄時間')
-          return
-        }
-        if (new Date(form.startTime) >= new Date(form.endTime)) {
-          ElMessage.warning('結束時間必須大於開始時間')
-          return
-        }
-      }
-
-      // 金額正數與範圍檢驗
-      if (form.formType === 'ADVANCE' || form.formType === 'PAYMENT') {
-        if (form.amount <= 0) {
-          ElMessage.warning('請款金額必須大於 0')
-          return
-        }
-        if (form.amount > 999999999.99) {
-          ElMessage.warning('請款金額超出限制')
-          return
-        }
       }
 
       submitLoading.value = true
@@ -376,12 +448,15 @@ const submitForm = async () => {
                 <el-option label="請假申請單" value="LEAVE" />
                 <el-option label="加班申請單" value="OVERTIME" />
                 <el-option label="預支請款單" value="ADVANCE" />
-                <el-option label="墊付請款單 (堅持一單一發票)" value="PAYMENT" />
+                <el-option label="墊付請款單" value="PAYMENT" />
               </el-select>
+              <div v-if="form.formType === 'PAYMENT'" class="form-tip" style="color: #e6a23c; font-size: 13px; margin-top: 6px; font-weight: 500;">
+                ⚠️ 備註：一張發票請獨立申請一份簽呈
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="簽呈主旨 (首頁快速辨識)" prop="title">
+            <el-form-item label="簽呈主旨" prop="title">
               <el-input v-model="form.title" placeholder="請輸入主旨 (例: 6/15 資訊部特休請假)" />
             </el-form-item>
           </el-col>
@@ -391,7 +466,7 @@ const submitForm = async () => {
         <template v-if="form.formType === 'LEAVE'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="請假開始時間 (以半小時為區間)" required>
+              <el-form-item label="請假開始時間 (以半小時為區間)" prop="startTime">
                 <el-date-picker
                   v-model="form.startTime"
                   type="datetime"
@@ -404,7 +479,7 @@ const submitForm = async () => {
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="請假結束時間 (以半小時為區間)" required>
+              <el-form-item label="請假結束時間 (以半小時為區間)" prop="endTime">
                 <el-date-picker
                   v-model="form.endTime"
                   type="datetime"
@@ -423,7 +498,7 @@ const submitForm = async () => {
         <template v-if="form.formType === 'OVERTIME'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="加班開始時間 (以半小時為區間)" required>
+              <el-form-item label="加班開始時間 (以半小時為區間)" prop="startTime">
                 <el-date-picker
                   v-model="form.startTime"
                   type="datetime"
@@ -431,11 +506,12 @@ const submitForm = async () => {
                   format="YYYY-MM-DD HH:mm"
                   value-format="YYYY-MM-DDTHH:mm:ss"
                   style="width: 100%"
+                  :disabled-date="disabledOvertimeDate"
                 />
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="加班結束時間 (以半小時為區間)" required>
+              <el-form-item label="加班結束時間 (以半小時為區間)" prop="endTime">
                 <el-date-picker
                   v-model="form.endTime"
                   type="datetime"
@@ -443,6 +519,7 @@ const submitForm = async () => {
                   format="YYYY-MM-DD HH:mm"
                   value-format="YYYY-MM-DDTHH:mm:ss"
                   style="width: 100%"
+                  :disabled-date="disabledOvertimeDate"
                 />
               </el-form-item>
             </el-col>
@@ -471,12 +548,12 @@ const submitForm = async () => {
         <template v-if="form.formType === 'PAYMENT'">
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="發票號碼" required>
+              <el-form-item label="發票號碼" prop="invoiceNum">
                 <el-input v-model="form.invoiceNum" placeholder="請輸入發票號碼" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="發票日期" required>
+              <el-form-item label="發票日期" prop="invoiceDate">
                 <el-date-picker
                   v-model="form.invoiceDate"
                   type="date"
@@ -484,6 +561,7 @@ const submitForm = async () => {
                   format="YYYY-MM-DD"
                   value-format="YYYY-MM-DD"
                   style="width: 100%"
+                  :disabled-date="disabledInvoiceDate"
                 />
               </el-form-item>
             </el-col>
@@ -502,12 +580,15 @@ const submitForm = async () => {
           </el-row>
         </template>
 
-        <el-form-item label="用途說明 / 事由說明" prop="reason">
-          <el-input v-model="form.reason" type="textarea" :rows="3" placeholder="請填寫用途或詳細請假事由說明" />
+        <el-form-item :label="reasonLabel" prop="reason">
+          <el-input v-model="form.reason" type="textarea" :rows="3" :placeholder="reasonPlaceholder" />
         </el-form-item>
 
-        <!-- 檔案上傳區 -->
-        <el-form-item label="上傳佐證檔案 (限制每個檔案最大 2MB，可複選上傳)">
+        <!-- 檔案上傳區 (僅預支與墊付請款單顯示) -->
+        <el-form-item 
+          v-if="form.formType === 'ADVANCE' || form.formType === 'PAYMENT'" 
+          label="上傳檔案 (限制每個檔案最大 2MB，可複選上傳)"
+        >
           <el-upload
             action="#"
             :auto-upload="false"
@@ -529,42 +610,53 @@ const submitForm = async () => {
         <!-- 工作流配置面板 -->
         <div class="workflow-section">
           <div class="workflow-header">
-            <h3 class="section-title">簽核流轉路徑配置 (BPM Engine Config)</h3>
-            <el-button type="primary" plain size="small" @click="openAddApprover">
-              <el-icon><Plus /></el-icon> 配置簽核節點
+            <h3 class="section-title">簽核順序</h3>
+            <el-button type="primary" size="small" @click="openAddApprover" style="color: white; font-weight: bold;">
+              <el-icon><Plus /></el-icon> 新增簽核順序
             </el-button>
           </div>
 
           <div class="route-timeline">
-            <div 
-              v-for="(route, index) in routes" 
-              :key="index" 
-              class="route-node-card glass-panel"
-            >
-              <div class="node-left">
-                <div class="step-badge">Step {{ route.stepNumber }}</div>
-                <div class="node-info">
-                  <span class="node-name">{{ route.approver.realName }}</span>
-                  <span class="node-id">({{ route.approver.userId }})</span>
-                </div>
-              </div>
+            <el-table :data="routes" style="width: 100%" border class="workflow-table">
+              <el-table-column label="順序" width="100" align="center">
+                <template #default="scope">
+                  <span class="step-text">0{{ scope.row.stepNumber }}</span>
+                </template>
+              </el-table-column>
               
-              <div class="node-right">
-                <el-tag v-if="route.stepNumber === 1" type="success" size="small">申請人 (自己)</el-tag>
-                <el-tag v-else-if="route.stepNumber === 2 && route.type === 'MANAGER'" type="warning" size="small">預設直屬主管</el-tag>
-                <el-tag v-else-if="route.subStep > 1 || routes.filter(r => r.stepNumber === route.stepNumber).length > 1" type="danger" size="small">會辦關卡 (Sub: {{ route.subStep }})</el-tag>
-                <el-tag v-else type="primary" size="small">串簽關卡</el-tag>
-                
-                <!-- 第一關與第二關主管不開放直接刪除，確保基本審核鍊 -->
-                <el-button 
-                  v-if="route.stepNumber > 2" 
-                  type="danger" 
-                  link 
-                  icon="Delete" 
-                  @click="removeRouteNode(index)"
-                />
-              </div>
-            </div>
+              <el-table-column label="簽核方式" width="160" align="center">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.stepNumber === 1" type="info" effect="plain">發起人</el-tag>
+                  <el-tag v-else-if="scope.row.stepNumber === 2 && scope.row.type === 'MANAGER'" type="warning" effect="plain">直屬主管</el-tag>
+                  <el-tag v-else-if="scope.row.type === 'JOINT' || routes.filter(r => r.stepNumber === scope.row.stepNumber).length > 1" type="danger" effect="plain">會辦關卡</el-tag>
+                  <el-tag v-else type="primary" effect="plain">串簽關卡</el-tag>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="簽核成員">
+                <template #default="scope">
+                  <div class="approver-cell">
+                    <span class="approver-name">{{ scope.row.approver.realName }}</span>
+                    <span class="approver-id">({{ scope.row.approver.userId }})</span>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="操作" width="120" align="center">
+                <template #default="scope">
+                  <!-- 第一關自己與第二關預設主管不開放刪除 -->
+                  <span v-if="scope.row.isDefault" class="lock-text">系統鎖定</span>
+                  <el-button 
+                    v-else 
+                    type="danger" 
+                    icon="Delete" 
+                    circle 
+                    size="small"
+                    @click="removeRouteNode(scope.$index)"
+                  />
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
         </div>
 
@@ -623,7 +715,7 @@ const submitForm = async () => {
                   :key="user.userId"
                   class="user-check-item"
                 >
-                  <el-checkbox :label="user.userId">
+                  <el-checkbox :value="user.userId">
                     {{ user.realName }} ({{ user.userId }}) - {{ user.position }}
                   </el-checkbox>
                 </div>
@@ -852,5 +944,50 @@ const submitForm = async () => {
   font-size: 12px;
   color: var(--text-light);
   margin-top: 40px;
+}
+
+/* 簽核順序表格化樣式 */
+.workflow-table {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.step-text {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--primary);
+}
+
+.approver-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+}
+
+.approver-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.approver-id {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lock-text {
+  font-size: 12px;
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+:deep(.el-form-item__error) {
+  position: relative;
+  top: auto;
+  left: auto;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 </style>

@@ -497,4 +497,104 @@ public class FormServiceTest {
             formService.submitForm(formOverflow, routeTemplates, new ArrayList<>(), "EMP001");
         });
     }
+
+    @Test
+    public void testSubmitForm_OvertimeFutureTime() {
+        // 測試加班結束時間為未來時間
+        ApprovalForm overtimeFormFuture = ApprovalForm.builder()
+                .title("未來加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.now().minusHours(2).withMinute(0).withSecond(0).withNano(0))
+                .endTime(LocalDateTime.now().plusHours(2).withMinute(0).withSecond(0).withNano(0))
+                .reason("加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(overtimeFormFuture, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+        assertTrue(ex.getMessage().contains("加班結束時間不可為未來時間"));
+    }
+
+    @Test
+    public void testSubmitForm_PaymentInvalidInvoiceNum() {
+        // 測試發票號碼格式不正確
+        ApprovalForm paymentFormInvalidInvoice = ApprovalForm.builder()
+                .title("墊付簽呈-發票號碼格式錯誤")
+                .formType("PAYMENT")
+                .amount(new BigDecimal("100.00"))
+                .invoiceNum("12345678") // 格式不符 Regex: ^[A-Z]{2}\d{8}$
+                .invoiceDate(LocalDate.now())
+                .reason("辦公用品")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(paymentFormInvalidInvoice, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+        assertTrue(ex.getMessage().contains("發票號碼格式不正確"));
+    }
+
+    @Test
+    public void testSubmitForm_PaymentFutureInvoiceDate() {
+        // 測試發票日期不可為未來日期
+        ApprovalForm paymentFormFutureDate = ApprovalForm.builder()
+                .title("墊付簽呈-未來發票日期")
+                .formType("PAYMENT")
+                .amount(new BigDecimal("100.00"))
+                .invoiceNum("AB12345678")
+                .invoiceDate(LocalDate.now().plusDays(1)) // 明天
+                .reason("辦公用品")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(paymentFormFutureDate, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+        assertTrue(ex.getMessage().contains("發票日期不可為未來日期"));
+    }
+
+    @Test
+    public void testSubmitForm_PaymentInvoiceDateNull() {
+        // 測試發票日期為空
+        ApprovalForm paymentFormNullDate = ApprovalForm.builder()
+                .title("墊付簽呈-發票日期為空")
+                .formType("PAYMENT")
+                .amount(new BigDecimal("100.00"))
+                .invoiceNum("AB12345678")
+                .invoiceDate(null)
+                .reason("辦公用品")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            formService.submitForm(paymentFormNullDate, routeTemplates, new ArrayList<>(), "EMP001");
+        });
+        assertTrue(ex.getMessage().contains("發票日期不可為空"));
+    }
 }
+

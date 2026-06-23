@@ -37,7 +37,8 @@ public class FormServiceImpl implements FormService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ApprovalForm submitForm(ApprovalForm form, List<ApprovalRoute> routeTemplates, List<MultipartFile> files, String applicantId) throws IOException {
+    public ApprovalForm submitForm(ApprovalForm form, List<ApprovalRoute> routeTemplates, List<MultipartFile> files,
+            String applicantId) throws IOException {
         log.info("員工 {} 發起簽呈申請...", applicantId);
 
         User applicant = userRepository.findById(applicantId)
@@ -58,6 +59,23 @@ public class FormServiceImpl implements FormService {
             if (amt.compareTo(AMOUNT_LIMIT) > 0) {
                 log.warn("發起簽呈失敗：金額 {} 超出限制", amt);
                 throw new IllegalArgumentException("金額太大，超出上限限制");
+            }
+
+            if ("PAYMENT".equalsIgnoreCase(form.getFormType())) {
+                String invoiceNum = form.getInvoiceNum();
+                if (invoiceNum == null || !invoiceNum.matches("^[A-Z]{2}\\d{8}$")) {
+                    log.warn("發起簽呈失敗：發票號碼 {} 格式不正確", invoiceNum);
+                    throw new IllegalArgumentException("發票號碼格式不正確，應為 2 碼大寫英文與 8 碼數字（例如：AB12345678）");
+                }
+
+                java.time.LocalDate invoiceDate = form.getInvoiceDate();
+                if (invoiceDate == null) {
+                    throw new IllegalArgumentException("發票日期不可為空");
+                }
+                if (invoiceDate.isAfter(java.time.LocalDate.now())) {
+                    log.warn("發起簽呈失敗：發票日期 {} 不可為未來日期", invoiceDate);
+                    throw new IllegalArgumentException("發票日期不可為未來日期");
+                }
             }
         }
 
@@ -82,6 +100,13 @@ public class FormServiceImpl implements FormService {
                 throw new IllegalArgumentException("結束時間必須對齊整點或半點（00 分或 30 分）");
             }
 
+            if ("OVERTIME".equalsIgnoreCase(form.getFormType())) {
+                if (end.isAfter(LocalDateTime.now())) {
+                    log.warn("發起簽呈失敗：加班結束時間 {} 不可為未來時間", end);
+                    throw new IllegalArgumentException("加班結束時間不可為未來時間");
+                }
+            }
+
             if ("LEAVE".equalsIgnoreCase(form.getFormType())) {
                 BigDecimal hours = calculateLeaveHours(start, end);
                 form.setTotalHours(hours);
@@ -93,8 +118,8 @@ public class FormServiceImpl implements FormService {
                 java.time.LocalTime endTime = end.toLocalTime();
 
                 boolean isSameDay = startDate.isEqual(endDate);
-                boolean isExactlyMidnightNextDay = endDate.isEqual(startDate.plusDays(1)) && 
-                                                   endTime.equals(java.time.LocalTime.MIDNIGHT);
+                boolean isExactlyMidnightNextDay = endDate.isEqual(startDate.plusDays(1)) &&
+                        endTime.equals(java.time.LocalTime.MIDNIGHT);
 
                 if (!isSameDay && !isExactlyMidnightNextDay) {
                     log.warn("發起簽呈失敗：加班申請不可跨日，起迄時間：{} - {}", start, end);
@@ -112,7 +137,8 @@ public class FormServiceImpl implements FormService {
         // 儲存附件
         if (files != null && !files.isEmpty()) {
             for (MultipartFile file : files) {
-                if (file.isEmpty()) continue;
+                if (file.isEmpty())
+                    continue;
                 if (file.getSize() > 2 * 1024 * 1024) {
                     log.warn("上傳檔案失敗：檔案 {} 超過 2MB 限制", file.getOriginalFilename());
                     throw new IllegalArgumentException("單一檔案大小不得超過 2MB");
@@ -145,7 +171,7 @@ public class FormServiceImpl implements FormService {
             if (template.getStepNumber() == 1) {
                 initialStatus = "APPROVED"; // 申請人自己第一步自動同意
             } else if (template.getStepNumber() == 2) {
-                initialStatus = "PENDING";  // 主管（第二步）自動開始處理
+                initialStatus = "PENDING"; // 主管（第二步）自動開始處理
             }
 
             ApprovalRoute route = ApprovalRoute.builder()
@@ -189,8 +215,9 @@ public class FormServiceImpl implements FormService {
         List<ApprovalRoute> routes = routeRepository.findByFormFormIdOrderByStepNumberAscSubStepAsc(formId);
         boolean hasReviewActivity = false;
         for (ApprovalRoute route : routes) {
-            if (route.getStepNumber() > 1 && 
-                ("APPROVED".equalsIgnoreCase(route.getRouteStatus()) || "REJECTED".equalsIgnoreCase(route.getRouteStatus()))) {
+            if (route.getStepNumber() > 1 &&
+                    ("APPROVED".equalsIgnoreCase(route.getRouteStatus())
+                            || "REJECTED".equalsIgnoreCase(route.getRouteStatus()))) {
                 hasReviewActivity = true;
                 break;
             }
@@ -228,7 +255,8 @@ public class FormServiceImpl implements FormService {
         routeRepository.save(currentRoute);
 
         // 檢查當前 currentStep 的所有人是否都已是 APPROVED (會辦邏輯)
-        List<ApprovalRoute> currentStepRoutes = routeRepository.findByFormFormIdAndStepNumber(formId, form.getCurrentStep());
+        List<ApprovalRoute> currentStepRoutes = routeRepository.findByFormFormIdAndStepNumber(formId,
+                form.getCurrentStep());
         boolean allApproved = currentStepRoutes.stream()
                 .allMatch(r -> "APPROVED".equalsIgnoreCase(r.getRouteStatus()));
 
@@ -265,7 +293,7 @@ public class FormServiceImpl implements FormService {
 
         // 輸出關鍵商務日誌：審核人、表單 ID、變更金額/假別時數、結果
         String detailInfo = getFormDetailSummary(form);
-        log.info("[核准事件] 審核人: {}, 表單ID: {}, 表單類型: {}, {}, 結果: 同意 (APPROVED)", 
+        log.info("[核准事件] 審核人: {}, 表單ID: {}, 表單類型: {}, {}, 結果: 同意 (APPROVED)",
                 approverId, formId, form.getFormType(), detailInfo);
 
         return form;
@@ -296,7 +324,7 @@ public class FormServiceImpl implements FormService {
 
         // 輸出關鍵商務日誌：審核人、表單 ID、變更金額/假別時數、結果
         String detailInfo = getFormDetailSummary(form);
-        log.info("[駁回事件] 審核人: {}, 表單ID: {}, 表單類型: {}, {}, 結果: 駁回 (REJECTED)", 
+        log.info("[駁回事件] 審核人: {}, 表單ID: {}, 表單類型: {}, {}, 結果: 駁回 (REJECTED)",
                 approverId, formId, form.getFormType(), detailInfo);
 
         return savedForm;
@@ -356,9 +384,9 @@ public class FormServiceImpl implements FormService {
 
         while (current.isBefore(end)) {
             // 1. 排除週末假日 (週六與週日)
-            boolean isWeekend = (current.getDayOfWeek() == java.time.DayOfWeek.SATURDAY || 
-                                 current.getDayOfWeek() == java.time.DayOfWeek.SUNDAY);
-            
+            boolean isWeekend = (current.getDayOfWeek() == java.time.DayOfWeek.SATURDAY ||
+                    current.getDayOfWeek() == java.time.DayOfWeek.SUNDAY);
+
             // 2. 判定是否在工作時間內 (標準上班時間 08:00 - 17:00，且排除中午 12:00 - 13:00)
             int hour = current.getHour();
             boolean isWorkingHour = (hour >= 8 && hour < 17 && hour != 12);

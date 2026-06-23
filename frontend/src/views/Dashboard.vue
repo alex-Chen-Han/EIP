@@ -451,8 +451,12 @@ const downloadFile = async (attachment) => {
                   <span class="node-title">
                     第 {{ route.stepNumber }} 關 - 
                     <span v-if="route.stepNumber === 1">申請人</span>
-                    <span v-else>審核主管</span>
-                    : {{ route.approver.realName }} ({{ route.approver.userId }})
+                    <span v-else>審核人</span>
+                    : 
+                    <span v-if="route.approver.department" class="node-dept">[{{ route.approver.department.deptName }}]</span>
+                    <span v-if="route.approver.position" class="node-position">{{ route.approver.position }}</span>
+                    <span class="node-realname">{{ route.approver.realName }}</span>
+                    <span class="node-userid">({{ route.approver.userId }})</span>
                   </span>
                   <el-tag :type="getRouteStatusTag(route.routeStatus)" size="small">
                     {{ getRouteStatusLabel(route.routeStatus) }}
@@ -473,7 +477,7 @@ const downloadFile = async (attachment) => {
 
         <!-- 主管審批操作區 -->
         <div v-if="isPendingForMe" class="approval-action-box glass-panel">
-          <div class="action-title">主管審核決策</div>
+          <div class="action-title">簽核意見</div>
           <el-input
             v-model="comment"
             type="textarea"
@@ -673,6 +677,29 @@ const downloadFile = async (attachment) => {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-main);
+}
+
+.node-dept {
+  color: var(--primary);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.node-position {
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.node-realname {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.node-userid {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: 2px;
 }
 
 .node-body {

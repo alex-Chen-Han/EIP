@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -279,7 +279,7 @@ const downloadFile = async (attachment) => {
             </template>
           </el-table-column>
         </el-table>
-      </-tab-pane>
+      </el-tab-pane>
 
       <!-- 2. 已簽核紀錄 -->
       <el-tab-pane label="已簽核紀錄" name="reviewed">
@@ -314,7 +314,7 @@ const downloadFile = async (attachment) => {
             </template>
           </el-table-column>
         </el-table>
-      </-tab-pane>
+      </el-tab-pane>
 
       <!-- 3. 我申請的簽呈 -->
       <el-tab-pane label="我發起的申請" name="my">
@@ -348,7 +348,7 @@ const downloadFile = async (attachment) => {
             </template>
           </el-table-column>
         </el-table>
-      </-tab-pane>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 簽呈詳細資料 Modal -->

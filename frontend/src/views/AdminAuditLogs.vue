@@ -123,7 +123,7 @@ const formatDate = (dateStr) => {
           </template>
         </el-table-column>
       </el-table>
-    </-card>
+    </el-card>
   </div>
 </template>
 

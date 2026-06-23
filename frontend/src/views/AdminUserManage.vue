@@ -285,7 +285,7 @@ const getRoleTag = (role) => {
       width="640px"
       align-center
     >
-      <el-form :model="userForm" :rules="userRules" ref="formRef" label-position="top">
+      <el-form :model="userForm" :rules="userRules" ref="userFormRef" label-position="top">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="員工編號 (登入帳號)" prop="userId" :disabled="dialogType === 'edit'">

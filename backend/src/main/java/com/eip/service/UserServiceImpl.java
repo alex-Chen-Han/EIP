@@ -100,7 +100,12 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + userId));
 
-        user.setPasswordHash(hashPassword(newPassword));
+        String newHash = hashPassword(newPassword);
+        if (newHash.equals(user.getPasswordHash())) {
+            throw new IllegalArgumentException("新密碼不可與舊密碼相同");
+        }
+
+        user.setPasswordHash(newHash);
         userRepository.save(user);
 
         saveAuditLog(operatorId, "UPDATE_PASSWORD", userId, "變更員工編號 " + userId + " 的密碼");

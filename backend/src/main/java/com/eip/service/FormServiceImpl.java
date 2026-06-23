@@ -379,10 +379,13 @@ public class FormServiceImpl implements FormService {
             return BigDecimal.ZERO;
         }
 
-        long totalHalfHours = 0;
-        LocalDateTime current = start;
+        LocalDateTime cleanedStart = start.withSecond(0).withNano(0);
+        LocalDateTime cleanedEnd = end.withSecond(0).withNano(0);
 
-        while (current.isBefore(end)) {
+        long totalHalfHours = 0;
+        LocalDateTime current = cleanedStart;
+
+        while (current.isBefore(cleanedEnd)) {
             // 1. 排除週末假日 (週六與週日)
             boolean isWeekend = (current.getDayOfWeek() == java.time.DayOfWeek.SATURDAY ||
                     current.getDayOfWeek() == java.time.DayOfWeek.SUNDAY);
@@ -406,11 +409,29 @@ public class FormServiceImpl implements FormService {
             return BigDecimal.ZERO;
         }
 
-        long totalHalfHours = 0;
-        LocalDateTime current = start;
+        LocalDateTime cleanedStart = start.withSecond(0).withNano(0);
+        LocalDateTime cleanedEnd = end.withSecond(0).withNano(0);
 
-        while (current.isBefore(end)) {
-            totalHalfHours++;
+        long totalHalfHours = 0;
+        LocalDateTime current = cleanedStart;
+
+        while (current.isBefore(cleanedEnd)) {
+            int hour = current.getHour();
+            boolean isWeekend = (current.getDayOfWeek() == java.time.DayOfWeek.SATURDAY ||
+                    current.getDayOfWeek() == java.time.DayOfWeek.SUNDAY);
+
+            if (isWeekend) {
+                // 週末加班：整天都算，但排除中午 12:00 - 13:00 的休息時間
+                if (hour != 12) {
+                    totalHalfHours++;
+                }
+            } else {
+                // 平日加班：只計算 08:00 之前與 17:00 之後的時間 (自動排除平日正常上班 08:00 - 17:00)
+                boolean isOvertimeRange = (hour < 8 || hour >= 17);
+                if (isOvertimeRange) {
+                    totalHalfHours++;
+                }
+            }
             current = current.plusMinutes(30);
         }
 

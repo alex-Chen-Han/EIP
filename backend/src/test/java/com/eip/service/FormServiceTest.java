@@ -299,12 +299,12 @@ public class FormServiceTest {
 
     @Test
     public void testSubmitForm_OvertimeCalculation() throws IOException {
-        // 測試加班時數計算：09:00 到 12:30 (共 3.5 小時，不扣除午休)
+        // 測試加班時數計算：09:00 到 12:30 (週六，扣除 12:00-12:30 午休半小時，共 3.0 小時)
         ApprovalForm overtimeForm = ApprovalForm.builder()
                 .title("加班單A")
                 .formType("OVERTIME")
-                .startTime(LocalDateTime.of(2026, 6, 15, 9, 0))
-                .endTime(LocalDateTime.of(2026, 6, 15, 12, 30))
+                .startTime(LocalDateTime.of(2026, 6, 13, 9, 0)) // 2026-06-13 是週六 (假日)
+                .endTime(LocalDateTime.of(2026, 6, 13, 12, 30))
                 .reason("專案加班")
                 .build();
 
@@ -320,7 +320,7 @@ public class FormServiceTest {
         ApprovalForm result = formService.submitForm(overtimeForm, routeTemplates, new ArrayList<>(), "EMP001");
 
         assertNotNull(result);
-        assertEquals(new BigDecimal("3.5"), result.getTotalHours());
+        assertEquals(new BigDecimal("3.0"), result.getTotalHours());
     }
 
     @Test
@@ -595,6 +595,84 @@ public class FormServiceTest {
             formService.submitForm(paymentFormNullDate, routeTemplates, new ArrayList<>(), "EMP001");
         });
         assertTrue(ex.getMessage().contains("發票日期不可為空"));
+    }
+
+    @Test
+    public void testSubmitForm_WeekdayOvertimeExcludesCoreHours() throws IOException {
+        // 測試平日加班排除正常工時：08:00 到 20:00 (平日週一，扣除 08:00-17:00 共 9 小時，只計 17:00-20:00 的 3.0 小時)
+        ApprovalForm form = ApprovalForm.builder()
+                .title("平日加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 15, 8, 0)) // 2026-06-15 是週一 (平日)
+                .endTime(LocalDateTime.of(2026, 6, 15, 20, 0))
+                .reason("加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(form, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("3.0"), result.getTotalHours());
+    }
+
+    @Test
+    public void testSubmitForm_WeekdayOvertimeBeforeAndAfterCoreHours() throws IOException {
+        // 測試平日跨正常工時的前後加班：06:00 到 21:00 (平日週一，排除 08:00-17:00，只計 06-08 與 17-21，共 2 + 4 = 6.0 小時)
+        ApprovalForm form = ApprovalForm.builder()
+                .title("平日前後加班單")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 15, 6, 0)) // 2026-06-15 是週一 (平日)
+                .endTime(LocalDateTime.of(2026, 6, 15, 21, 0))
+                .reason("加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(form, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("6.0"), result.getTotalHours());
+    }
+
+    @Test
+    public void testSubmitForm_WeekendOvertimeDeductsLunch() throws IOException {
+        // 測試假日加班扣除午休：08:00 到 20:00 (週六，總時數 12.0，扣除 12:00-13:00 休息 1.0 小時，為 11.0 小時)
+        ApprovalForm form = ApprovalForm.builder()
+                .title("假日加班扣午休")
+                .formType("OVERTIME")
+                .startTime(LocalDateTime.of(2026, 6, 13, 8, 0)) // 2026-06-13 是週六 (假日)
+                .endTime(LocalDateTime.of(2026, 6, 13, 20, 0))
+                .reason("加班")
+                .build();
+
+        List<ApprovalRoute> routeTemplates = Arrays.asList(
+                ApprovalRoute.builder().approver(applicant).stepNumber(1).subStep(1).build(),
+                ApprovalRoute.builder().approver(manager).stepNumber(2).subStep(1).build()
+        );
+
+        when(userRepository.findById("EMP001")).thenReturn(Optional.of(applicant));
+        when(userRepository.findById("MGR001")).thenReturn(Optional.of(manager));
+        when(formRepository.save(any(ApprovalForm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ApprovalForm result = formService.submitForm(form, routeTemplates, new ArrayList<>(), "EMP001");
+
+        assertNotNull(result);
+        assertEquals(new BigDecimal("11.0"), result.getTotalHours());
     }
 }
 

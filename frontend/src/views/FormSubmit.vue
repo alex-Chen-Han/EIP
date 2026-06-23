@@ -457,7 +457,7 @@ const submitForm = async () => {
           </el-col>
           <el-col :span="12">
             <el-form-item label="簽呈主旨" prop="title">
-              <el-input v-model="form.title" placeholder="請輸入主旨 (例: 6/15 資訊部特休請假)" />
+              <el-input v-model="form.title" placeholder="請輸入主旨" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -524,6 +524,9 @@ const submitForm = async () => {
               </el-form-item>
             </el-col>
           </el-row>
+          <div class="form-tip" style="color: #e6a23c; font-size: 13px; margin-top: -6px; margin-bottom: 12px; font-weight: 500;">
+            ⚠️ 提示：平日正常上班時間 (08:00 - 17:00) 將自動扣除；假日 (週六日) 加班自動扣除中午休息 (12:00 - 13:00)。
+          </div>
         </template>
 
         <!-- C. 預支請款特有欄位 -->
@@ -537,7 +540,7 @@ const submitForm = async () => {
                   :step="100" 
                   :min="0.01" 
                   style="width: 100%" 
-                  placeholder="請輸入欲預支請款金額"
+                  placeholder="請輸入預支金額"
                 />
               </el-form-item>
             </el-col>

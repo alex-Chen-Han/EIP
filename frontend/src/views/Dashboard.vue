@@ -247,7 +247,7 @@ const downloadFile = async (attachment) => {
   <div class="dashboard-wrapper">
     <div class="welcome-banner animate-fade-in-up">
       <h2 class="welcome-title text-gradient">電子簽核中心</h2>
-      <p class="welcome-text">歡迎回到系統。您可以在此審批主管事項，或查詢您發起的請假、加班、請款狀態。</p>
+      <p class="welcome-text">歡迎回到系統。您可以在此審批事項，或查詢您發起的請假、加班、請款狀態。</p>
     </div>
 
     <!-- 首頁三大頁籤 -->

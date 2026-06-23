@@ -10,6 +10,7 @@ import com.eip.repository.ApprovalRouteRepository;
 import com.eip.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.eip.util.UserUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,10 +40,11 @@ public class FormServiceImpl implements FormService {
     @Transactional(rollbackFor = Exception.class)
     public ApprovalForm submitForm(ApprovalForm form, List<ApprovalRoute> routeTemplates, List<MultipartFile> files,
             String applicantId) throws IOException {
-        log.info("員工 {} 發起簽呈申請...", applicantId);
+        final String normalizedApplicantId = UserUtils.normalizeUserId(applicantId);
+        log.info("員工 {} 發起簽呈申請...", normalizedApplicantId);
 
-        User applicant = userRepository.findById(applicantId)
-                .orElseThrow(() -> new IllegalArgumentException("申請人不存在：" + applicantId));
+        User applicant = userRepository.findById(normalizedApplicantId)
+                .orElseThrow(() -> new IllegalArgumentException("申請人不存在：" + normalizedApplicantId));
 
         form.setApplicant(applicant);
         form.setCreatedAt(LocalDateTime.now());
@@ -164,8 +166,10 @@ public class FormServiceImpl implements FormService {
 
         List<ApprovalRoute> savedRoutes = new ArrayList<>();
         for (ApprovalRoute template : routeTemplates) {
-            User approver = userRepository.findById(template.getApprover().getUserId())
-                    .orElseThrow(() -> new IllegalArgumentException("簽核人不存在：" + template.getApprover().getUserId()));
+            String tempApproverId = UserUtils.normalizeUserId(template.getApprover().getUserId());
+            template.getApprover().setUserId(tempApproverId);
+            User approver = userRepository.findById(tempApproverId)
+                    .orElseThrow(() -> new IllegalArgumentException("簽核人不存在：" + tempApproverId));
 
             String initialStatus = "WAITING";
             if (template.getStepNumber() == 1) {
@@ -196,6 +200,7 @@ public class FormServiceImpl implements FormService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApprovalForm withdrawForm(Long formId, String applicantId) {
+        applicantId = UserUtils.normalizeUserId(applicantId);
         log.info("申請人 {} 嘗試撤回（抽單）簽呈單號: {}", applicantId, formId);
 
         ApprovalForm form = formRepository.findById(formId)
@@ -239,6 +244,7 @@ public class FormServiceImpl implements FormService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApprovalForm approveRoute(Long formId, String approverId, String comment) {
+        approverId = UserUtils.normalizeUserId(approverId);
         log.info("主管 {} 審批同意簽呈單號: {}", approverId, formId);
 
         ApprovalForm form = formRepository.findById(formId)
@@ -302,6 +308,7 @@ public class FormServiceImpl implements FormService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ApprovalForm rejectRoute(Long formId, String approverId, String comment) {
+        approverId = UserUtils.normalizeUserId(approverId);
         log.info("主管 {} 駁回簽呈單號: {}", approverId, formId);
 
         ApprovalForm form = formRepository.findById(formId)
@@ -332,21 +339,25 @@ public class FormServiceImpl implements FormService {
 
     @Override
     public List<ApprovalForm> getPendingForms(String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return formRepository.findPendingApprovals(userId);
     }
 
     @Override
     public List<ApprovalForm> getReviewedForms(String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return formRepository.findReviewedApprovals(userId);
     }
 
     @Override
     public List<ApprovalForm> getMyForms(String applicantId) {
+        applicantId = UserUtils.normalizeUserId(applicantId);
         return formRepository.findByApplicantUserIdOrderByCreatedAtDesc(applicantId);
     }
 
     @Override
     public ApprovalForm getFormDetail(Long formId, String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         ApprovalForm form = formRepository.findById(formId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到該簽呈單：" + formId));
 

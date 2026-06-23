@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import com.eip.util.UserUtils;
 
 @RestController
 @RequestMapping("/api/users")
@@ -30,6 +31,7 @@ public class UserController {
 
     @GetMapping("/{id}")
     public ResponseEntity<User> getUserById(@PathVariable String id) {
+        id = UserUtils.normalizeUserId(id);
         User user = userService.getUserById(id);
         if (user != null) {
             return ResponseEntity.ok(user);
@@ -42,6 +44,14 @@ public class UserController {
             @RequestHeader("X-User-Id") String operatorId,
             @RequestBody UserRequest request) {
         try {
+            operatorId = UserUtils.normalizeUserId(operatorId);
+            if (request.getUserId() != null) {
+                request.setUserId(UserUtils.normalizeUserId(request.getUserId()));
+            }
+            if (request.getManagerId() != null) {
+                request.setManagerId(UserUtils.normalizeUserId(request.getManagerId()));
+            }
+
             Department dept = departmentRepository.findById(request.getDeptId())
                     .orElseThrow(() -> new IllegalArgumentException("部門不存在：" + request.getDeptId()));
 
@@ -75,6 +85,12 @@ public class UserController {
             @RequestHeader("X-User-Id") String operatorId,
             @RequestBody UserRequest request) {
         try {
+            id = UserUtils.normalizeUserId(id);
+            operatorId = UserUtils.normalizeUserId(operatorId);
+            if (request.getManagerId() != null) {
+                request.setManagerId(UserUtils.normalizeUserId(request.getManagerId()));
+            }
+
             Department dept = departmentRepository.findById(request.getDeptId())
                     .orElseThrow(() -> new IllegalArgumentException("部門不存在：" + request.getDeptId()));
 
@@ -108,6 +124,8 @@ public class UserController {
             @RequestHeader("X-User-Id") String operatorId,
             @RequestBody Map<String, String> body) {
         try {
+            id = UserUtils.normalizeUserId(id);
+            operatorId = UserUtils.normalizeUserId(operatorId);
             String newPassword = body.get("newPassword");
             if (newPassword == null || newPassword.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body("新密碼不可為空");
@@ -124,6 +142,8 @@ public class UserController {
             @PathVariable String id,
             @RequestHeader("X-User-Id") String operatorId) {
         try {
+            id = UserUtils.normalizeUserId(id);
+            operatorId = UserUtils.normalizeUserId(operatorId);
             userService.deleteUser(id, operatorId);
             return ResponseEntity.ok().body("帳號刪除成功");
         } catch (Exception e) {

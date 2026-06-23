@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.eip.util.UserUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User authenticate(String userId, String rawPassword) {
+        userId = UserUtils.normalizeUserId(userId);
         log.info("嘗試登入：{}", userId);
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
@@ -47,8 +49,16 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public User createUser(User user, String rawPassword, String operatorId) {
+        operatorId = UserUtils.normalizeUserId(operatorId);
         verifyAdmin(operatorId);
         
+        if (user.getUserId() != null) {
+            user.setUserId(UserUtils.normalizeUserId(user.getUserId()));
+        }
+        if (user.getManager() != null && user.getManager().getUserId() != null) {
+            user.getManager().setUserId(UserUtils.normalizeUserId(user.getManager().getUserId()));
+        }
+
         if (userRepository.existsById(user.getUserId())) {
             log.warn("建立帳號失敗：帳號已存在 {}", user.getUserId());
             throw new IllegalArgumentException("員工編號已存在：" + user.getUserId());
@@ -68,7 +78,15 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public User updateUser(User user, String operatorId) {
+        operatorId = UserUtils.normalizeUserId(operatorId);
         verifyAdmin(operatorId);
+
+        if (user.getUserId() != null) {
+            user.setUserId(UserUtils.normalizeUserId(user.getUserId()));
+        }
+        if (user.getManager() != null && user.getManager().getUserId() != null) {
+            user.getManager().setUserId(UserUtils.normalizeUserId(user.getManager().getUserId()));
+        }
 
         User existingUser = userRepository.findById(user.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + user.getUserId()));
@@ -95,10 +113,12 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void changePassword(String userId, String newPassword, String operatorId) {
-        verifyAdmin(operatorId);
+        final String normalizedUserId = UserUtils.normalizeUserId(userId);
+        final String normalizedOperatorId = UserUtils.normalizeUserId(operatorId);
+        verifyAdmin(normalizedOperatorId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + userId));
+        User user = userRepository.findById(normalizedUserId)
+                .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + normalizedUserId));
 
         String newHash = hashPassword(newPassword);
         if (newHash.equals(user.getPasswordHash())) {
@@ -108,26 +128,29 @@ public class UserServiceImpl implements UserService {
         user.setPasswordHash(newHash);
         userRepository.save(user);
 
-        saveAuditLog(operatorId, "UPDATE_PASSWORD", userId, "變更員工編號 " + userId + " 的密碼");
-        log.info("管理員 {} 成功變更員工 {} 的密碼", operatorId, userId);
+        saveAuditLog(normalizedOperatorId, "UPDATE_PASSWORD", normalizedUserId, "變更員工編號 " + normalizedUserId + " 的密碼");
+        log.info("管理員 {} 成功變更員工 {} 的密碼", normalizedOperatorId, normalizedUserId);
     }
 
     @Override
     @Transactional
     public void deleteUser(String userId, String operatorId) {
-        verifyAdmin(operatorId);
+        final String normalizedUserId = UserUtils.normalizeUserId(userId);
+        final String normalizedOperatorId = UserUtils.normalizeUserId(operatorId);
+        verifyAdmin(normalizedOperatorId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + userId));
+        User user = userRepository.findById(normalizedUserId)
+                .orElseThrow(() -> new IllegalArgumentException("使用者不存在：" + normalizedUserId));
 
         userRepository.delete(user);
 
-        saveAuditLog(operatorId, "DELETE_USER", userId, "刪除員工帳號：" + userId);
-        log.info("管理員 {} 成功刪除員工帳號：{}", operatorId, userId);
+        saveAuditLog(normalizedOperatorId, "DELETE_USER", normalizedUserId, "刪除員工帳號：" + normalizedUserId);
+        log.info("管理員 {} 成功刪除員工帳號：{}", normalizedOperatorId, normalizedUserId);
     }
 
     @Override
     public User getUserById(String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return userRepository.findById(userId).orElse(null);
     }
 
@@ -167,15 +190,18 @@ public class UserServiceImpl implements UserService {
     }
 
     private void verifyAdmin(String operatorId) {
-        User operator = userRepository.findById(operatorId)
-                .orElseThrow(() -> new IllegalArgumentException("操作員不存在：" + operatorId));
+        final String normalizedOperatorId = UserUtils.normalizeUserId(operatorId);
+        User operator = userRepository.findById(normalizedOperatorId)
+                .orElseThrow(() -> new IllegalArgumentException("操作員不存在：" + normalizedOperatorId));
         if (!"ADMIN".equalsIgnoreCase(operator.getRole())) {
-            log.warn("權限拒絕：非管理員帳號 {} 嘗試進行敏感操作", operatorId);
+            log.warn("權限拒絕：非管理員帳號 {} 嘗試進行敏感操作", normalizedOperatorId);
             throw new SecurityException("只有系統管理員 (ADMIN) 可以執行此操作");
         }
     }
 
     private void saveAuditLog(String operatorId, String actionType, String targetId, String description) {
+        operatorId = UserUtils.normalizeUserId(operatorId);
+        targetId = UserUtils.normalizeUserId(targetId);
         User operator = userRepository.findById(operatorId).orElse(null);
         if (operator != null) {
             AuditLog auditLog = AuditLog.builder()

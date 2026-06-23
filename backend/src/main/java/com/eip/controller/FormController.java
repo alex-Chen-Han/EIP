@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
+import com.eip.util.UserUtils;
 
 @Slf4j
 @RestController
@@ -33,6 +34,7 @@ public class FormController {
             @RequestPart("routes") String routesJson,
             @RequestPart(value = "files", required = false) List<MultipartFile> files) {
         try {
+            applicantId = UserUtils.normalizeUserId(applicantId);
             // 解析 JSON
             ApprovalForm form = objectMapper.readValue(formJson, ApprovalForm.class);
             List<ApprovalRoute> routes = objectMapper.readValue(routesJson, new TypeReference<List<ApprovalRoute>>() {});
@@ -50,6 +52,7 @@ public class FormController {
             @PathVariable Long id,
             @RequestHeader("X-User-Id") String applicantId) {
         try {
+            applicantId = UserUtils.normalizeUserId(applicantId);
             ApprovalForm result = formService.withdrawForm(id, applicantId);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -64,6 +67,7 @@ public class FormController {
             @RequestHeader("X-User-Id") String approverId,
             @RequestBody Map<String, String> body) {
         try {
+            approverId = UserUtils.normalizeUserId(approverId);
             String comment = body.getOrDefault("comment", "同意");
             ApprovalForm result = formService.approveRoute(id, approverId, comment);
             return ResponseEntity.ok(result);
@@ -79,6 +83,7 @@ public class FormController {
             @RequestHeader("X-User-Id") String approverId,
             @RequestBody Map<String, String> body) {
         try {
+            approverId = UserUtils.normalizeUserId(approverId);
             String comment = body.get("comment");
             if (comment == null || comment.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body("駁回時必須填寫意見");
@@ -93,16 +98,19 @@ public class FormController {
 
     @GetMapping("/pending")
     public ResponseEntity<List<ApprovalForm>> getPendingForms(@RequestHeader("X-User-Id") String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return ResponseEntity.ok(formService.getPendingForms(userId));
     }
 
     @GetMapping("/reviewed")
     public ResponseEntity<List<ApprovalForm>> getReviewedForms(@RequestHeader("X-User-Id") String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return ResponseEntity.ok(formService.getReviewedForms(userId));
     }
 
     @GetMapping("/my")
     public ResponseEntity<List<ApprovalForm>> getMyForms(@RequestHeader("X-User-Id") String userId) {
+        userId = UserUtils.normalizeUserId(userId);
         return ResponseEntity.ok(formService.getMyForms(userId));
     }
 
@@ -111,6 +119,7 @@ public class FormController {
             @PathVariable Long id,
             @RequestHeader("X-User-Id") String userId) {
         try {
+            userId = UserUtils.normalizeUserId(userId);
             ApprovalForm form = formService.getFormDetail(id, userId);
             return ResponseEntity.ok(form);
         } catch (SecurityException e) {

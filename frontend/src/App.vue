@@ -1,14 +1,126 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
 
 const currentUser = ref(null)
+const showTimeoutDialog = ref(false)
+const countdownSeconds = ref(0)
+const refreshing = ref(false)
+let checkInterval = null
+let countdownInterval = null
+
+// 解析 JWT Payload
+const parseJwt = (token) => {
+  try {
+    return JSON.parse(atob(token.split('.')[1]))
+  } catch (e) {
+    return null
+  }
+}
+
+// 格式化倒數計時顯示 (例如: 2 分 30 秒)
+const formatCountdown = computed(() => {
+  const m = Math.floor(countdownSeconds.value / 60)
+  const s = countdownSeconds.value % 60
+  return `${m} 分 ${s < 10 ? '0' : ''}${s} 秒`
+})
+
+const checkTokenTimeout = () => {
+  const token = localStorage.getItem('token')
+  if (!token) return
+
+  const payload = parseJwt(token)
+  if (!payload || !payload.exp) return
+
+  // 取得過期時間與目前時間的差值 (秒)
+  const expireTime = payload.exp * 1000
+  const now = Date.now()
+  const diffSeconds = Math.floor((expireTime - now) / 1000)
+
+  // 如果已經過期
+  if (diffSeconds <= 0) {
+    stopTimers()
+    forceLogout()
+    return
+  }
+
+  // 當剩餘時間少於 180 秒 (3 分鐘) 且目前沒在顯示 Dialog
+  if (diffSeconds <= 180 && !showTimeoutDialog.value) {
+    countdownSeconds.value = diffSeconds
+    showTimeoutDialog.value = true
+    
+    // 啟動倒數計時每秒減 1
+    countdownInterval = setInterval(() => {
+      countdownSeconds.value--
+      if (countdownSeconds.value <= 0) {
+        clearInterval(countdownInterval)
+        forceLogout()
+      }
+    }, 1000)
+  } else if (diffSeconds > 180 && showTimeoutDialog.value) {
+    // 如果 token 因其他操作在背後被刷除了，自動關閉 Dialog
+    showTimeoutDialog.value = false
+    if (countdownInterval) clearInterval(countdownInterval)
+  }
+}
+
+const startTimers = () => {
+  if (checkInterval) clearInterval(checkInterval)
+  // 每 5 秒檢查一次 Token 狀態
+  checkInterval = setInterval(checkTokenTimeout, 5000)
+}
+
+const stopTimers = () => {
+  if (checkInterval) clearInterval(checkInterval)
+  if (countdownInterval) clearInterval(countdownInterval)
+  checkInterval = null
+  countdownInterval = null
+}
+
+const keepSession = async () => {
+  refreshing.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.post('/api/auth/refresh', {}, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    
+    // 儲存新 Token
+    localStorage.setItem('token', response.data.token)
+    ElMessage.success('登入效期已成功延長')
+    showTimeoutDialog.value = false
+    if (countdownInterval) clearInterval(countdownInterval)
+  } catch (error) {
+    ElMessage.error('維持登入失敗，請重新登入')
+    forceLogout()
+  } finally {
+    refreshing.value = false
+  }
+}
+
+const forceLogout = () => {
+  showTimeoutDialog.value = false
+  localStorage.removeItem('token')
+  localStorage.removeItem('currentUser')
+  currentUser.value = null
+  stopTimers()
+  router.push('/login')
+}
 
 const loadUser = () => {
   currentUser.value = JSON.parse(localStorage.getItem('currentUser') || 'null')
+  if (currentUser.value) {
+    startTimers()
+  } else {
+    stopTimers()
+  }
 }
 
 // 每次路由改變時更新使用者資訊，確保登入狀態即時更新
@@ -20,13 +132,15 @@ onMounted(() => {
   loadUser()
 })
 
+onUnmounted(() => {
+  stopTimers()
+})
+
 const isLoggedIn = computed(() => !!currentUser.value)
 const isAdmin = computed(() => currentUser.value?.role === 'ADMIN')
 
 const handleLogout = () => {
-  localStorage.removeItem('currentUser')
-  currentUser.value = null
-  router.push('/login')
+  forceLogout()
 }
 </script>
 
@@ -69,6 +183,32 @@ const handleLogout = () => {
     <main class="main-content" :class="{ 'no-nav': !isLoggedIn }">
       <router-view />
     </main>
+
+    <!-- 登入即將過期警告彈窗 -->
+    <el-dialog
+      title="⚠️ 登入即將過期"
+      v-model="showTimeoutDialog"
+      width="400px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      align-center
+    >
+      <div style="text-align: center; padding: 10px 0;">
+        <p style="font-size: 15px; margin-bottom: 15px; color: var(--text-main);">
+          您的登入狀態即將在 <strong style="color: var(--danger); font-size: 18px;">{{ formatCountdown }}</strong> 後過期。
+        </p>
+        <p style="font-size: 13px; color: var(--text-muted);">
+          請點擊「維持登入」以繼續操作，避免您正在填寫的資料遺失。
+        </p>
+      </div>
+      <template #footer>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+          <el-button @click="forceLogout" type="info" plain>立即登出</el-button>
+          <el-button @click="keepSession" type="primary" :loading="refreshing">維持登入</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

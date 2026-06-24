@@ -36,6 +36,7 @@ const handleLogin = async () => {
           type: 'success'
         })
         
+        localStorage.setItem('token', response.data.token)
         localStorage.setItem('currentUser', JSON.stringify(response.data))
         router.push('/')
       } catch (error) {
